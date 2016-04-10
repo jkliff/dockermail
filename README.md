@@ -11,6 +11,7 @@ want to receive the mail for and send mail from this domain. It consists of 4 se
  - **dovecot**:  The SMTP and IMAP server. This container uses postfix as MTA and dovecot as IMAP server.
     All incoming mail to your own domains is accepted. For outgoing mail, only authenticated (logged in with username and password)
     clients can send messages via STARTTLS on port 587. In theory it works with all mail clients, but it was only tested with Thunderbird.
+    The domains configured use DKIM for source server identity recognition.
 
  - **rainloop**: An automatically configured webmail interface. Note that you have to login with your full mail adress, 
    e.g. `john.doe@example.org` instead of just `john.doe`. By default, this will bind to `localhost:33100`.
@@ -105,5 +106,7 @@ Known issues / Todo / Wishlist
 - Changing any configuration requires rebuilding the image and restarting the container
 
 - The Makefile currently cannot stop/replace old containers automatically
+
+- Support externalizing of DKIM keys.
 
 Patches welcome!
