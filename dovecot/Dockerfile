@@ -3,13 +3,15 @@ FROM mail-base
 # prerequisites
 RUN apt-get update                                  \
     # install self-signed ssl certs
-    && apt-get install -y --force-yes ssl-cert      \
     # Install postfix as MTA
-    postfix       \
     # Install postgrey for greylisting
-    postgrey      \
     # Install dovecot as IMAP server
-    dovecot-imapd \
+    && apt-get install -y --force-yes ssl-cert      \
+        postfix                                     \
+        postgrey                                    \
+        dovecot-imapd                               \
+        opendkim                                    \
+        opendkim-tools                              \
     && rm -rf /var/lib/apt/lists/*
 
 # postfix configuration
@@ -34,6 +36,21 @@ RUN mkdir /etc/postfix/tmp                                                      
 RUN postmap /etc/postfix/virtual              \
     && postmap /etc/postfix/virtual-mailbox-maps
 
+# DKIM configuration
+RUN echo SOCKET=\"inet:12301@localhost\" >> /etc/default/opendkim                                                               \
+    && mkdir -p /etc/opendkim/keys                                                                                              \
+    && sed -e 's/^/*./' /domains >> /etc/opendkim/TrustedHosts                                                                  \
+    && cat /domains | xargs -n 1 -i echo mail._domainkey.{} {}:mail:/etc/opendkim/keys/{}/mail.private >> /etc/opendkim/KeyTable\
+    && cat /domains | xargs -n 1 -i echo "*@{} mail._domainkey.{}" >> /etc/opendkim/SigningTable                                \
+    && for d in `cat /domains` ; do               \
+            mkdir /etc/opendkim/keys/$d;          \
+            cd /etc/opendkim/keys/$d;             \
+            opendkim-genkey -s mail -d $d;        \
+            chown opendkim:opendkim mail.private; \
+            cd -;                                 \
+        done
+ADD opendkim.conf /etc/opendkim.conf
+
 # add user vmail who own all mail folders
 RUN groupadd -g 5000 vmail                             \
     && useradd -g vmail -u 5000 vmail -d /srv/vmail -m \
@@ -41,17 +58,18 @@ RUN groupadd -g 5000 vmail                             \
     && chmod u+w /srv/vmail
 
 # dovecot configuration
-ADD ./dovecot.mail /etc/dovecot/conf.d/10-mail.conf
-ADD ./dovecot.ssl /etc/dovecot/conf.d/10-ssl.conf
-ADD ./dovecot.auth /etc/dovecot/conf.d/10-auth.conf
-ADD ./dovecot.master /etc/dovecot/conf.d/10-master.conf
-ADD ./dovecot.lda /etc/dovecot/conf.d/15-lda.conf
-ADD ./dovecot.imap /etc/dovecot/conf.d/20-imap.conf
+ADD ./dovecot.mail     /etc/dovecot/conf.d/10-mail.conf
+ADD ./dovecot.ssl      /etc/dovecot/conf.d/10-ssl.conf
+ADD ./dovecot.auth     /etc/dovecot/conf.d/10-auth.conf
+ADD ./dovecot.master   /etc/dovecot/conf.d/10-master.conf
+ADD ./dovecot.lda      /etc/dovecot/conf.d/15-lda.conf
+ADD ./dovecot.imap     /etc/dovecot/conf.d/20-imap.conf
 # add verbose logging
 #ADD ./internal/dovecot.logging /etc/dovecot/conf.d/10-logging.conf
 
 # Add password file
-RUN cp /passwords /etc/dovecot/passwd
+RUN cp /passwords /etc/dovecot/passwd \
+    && rm /passwords /aliases /domains
 
 # i'm not sure what expose actually does, so its mainly here for documentation
 # smtp port for incoming mail
@@ -65,5 +83,10 @@ EXPOSE 587
 # http://www.synology-wiki.de/index.php/Zusaetzliche_Ports_fuer_Postfix
 
 # start necessary services for operation (dovecot -F starts dovecot in the foreground to prevent container exit)
-ENTRYPOINT chown -R vmail:vmail /srv/vmail; service rsyslog start; service postgrey start; service postfix start; dovecot -F
+ENTRYPOINT chown -R vmail:vmail /srv/vmail  \
+    && service rsyslog start                \
+    && service postgrey start               \
+    && service postfix start                \
+    && service opendkim start               \
+    && dovecot -F
 
